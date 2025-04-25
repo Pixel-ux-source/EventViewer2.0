@@ -23,14 +23,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         guard let windowScene = scene as? UIWindowScene else { return }
         
-        print("🚀 SceneDelegate вызван!")
         window = UIWindow(windowScene: windowScene)
         window?.rootViewController = navigator
         window?.makeKeyAndVisible()
-        
-        if window == nil {
-            print("window nil")
-        }
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {

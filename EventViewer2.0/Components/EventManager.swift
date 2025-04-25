@@ -36,7 +36,24 @@ public final class EventManager: NSPersistentContainer {
         })
     }
     
-    func fetchNextPage(_ offset: Int, _ limit: Int, _ completion: @escaping ([DBEvent]) -> ()) {
+    internal func searchEvents(with query: String, completion: @escaping ([DBEvent]) -> Void) {
+        performBackgroundTask { context in
+            let request = DBEvent.makeFetchRequest()
+            request.predicate = NSPredicate(format: "id CONTAINS[cd] %@", query)
+            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+            
+            do {
+                let result = try context.fetch(request)
+                let object = result.map { self.viewContext.object(with: $0.objectID) as! DBEvent }
+                completion(object)
+            } catch let error as NSError {
+                completion([])
+                print("❌ Error search events: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    internal func fetchNextPage(_ offset: Int, _ limit: Int, _ completion: @escaping ([DBEvent]) -> ()) {
         performBackgroundTask { context in
             let request = DBEvent.makeFetchRequest()
             request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]

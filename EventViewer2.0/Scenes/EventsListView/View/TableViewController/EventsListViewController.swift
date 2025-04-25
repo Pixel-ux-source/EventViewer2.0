@@ -23,10 +23,13 @@ class EventsListViewController: UITableViewController {
         target: self,
         action: #selector(EventsListViewController.logout)
     )
-    
+        
     // MARK: - Variable's
     private let eventManager: EventManager
     private var isLoadingNextPage = false
+    private let searchController = UISearchController(searchResultsController: nil)
+    private var filteredEvents: [DBEvent] = []
+    private var searchText: String = ""
 
     // MARK: - Lifecycle
     init(eventManager: EventManager) {
@@ -44,8 +47,19 @@ class EventsListViewController: UITableViewController {
         configureView()
         configureUI()
         registerCell()
+        configureSearchController()
         print("🟢 EventsListViewController загружен!")
         
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        searchController.isActive = true
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
+        
+        DispatchQueue.main.async {
+            self.searchController.searchBar.becomeFirstResponder()
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -53,12 +67,11 @@ class EventsListViewController: UITableViewController {
         print("🟢 EventsListViewController появился на экране!")
         eventManager.capture(.viewScreen("EVENTS_LIST"))
         
-        print("🧠 UIScreen.main.bounds:", UIScreen.main.bounds)
-        print("📏 view.frame:", self.view.frame)
-        print("🪟 window?.frame:", self.view.window?.frame ?? .zero)
+        print("UIScreen.main.bounds:", UIScreen.main.bounds)
+        print("view.frame:", self.view.frame)
+        print("window?.frame:", self.view.window?.frame ?? .zero)
     }
 
-    // что не так со скроллом? 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if scrollView.contentOffset.y + scrollView.frame.height >= scrollView.contentSize.height {
             self.fetchNextPage()
@@ -97,8 +110,9 @@ class EventsListViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: EventsListCell.id, for: indexPath) as? EventsListCell else { fatalError("ERROR_CELL_NOT_FOUND") }
-        let nameEvent = events[indexPath.row].id
-        let dateEvent = events[indexPath.row].createdAt
+        let currentEvent = events[indexPath.row]
+        let nameEvent = currentEvent.id
+        let dateEvent = currentEvent.createdAt
         guard let dateEvent else { fatalError("ERROR_DATE_NOT_FOUND") }
         
         let formatter = DateFormatter()
@@ -119,6 +133,38 @@ class EventsListViewController: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
     }
     
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let deleteAction = UIContextualAction(style: .normal, title: "Delete record") { [weak self] (action, view, completionHandler) in
+            guard let self else {
+                completionHandler(false)
+                return
+            }
+            
+            let eventToDelete = self.events[indexPath.row]
+            eventManager.performBackgroundTask { context in
+                let object = context.object(with: eventToDelete.objectID)
+                context.delete(object)
+                
+                do {
+                    try context.save()
+                    DispatchQueue.main.async {
+                        self.events.remove(at: indexPath.row)
+                        tableView.deleteRows(at: [indexPath], with: .fade)
+                        print("Deleted element: \(self.events[indexPath.row].id)")
+                    }
+                } catch let error as NSError {
+                    print("❌ Ошибка при удалении:", error.localizedDescription)
+                }
+            }
+            completionHandler(true)
+        }
+        deleteAction.backgroundColor = .red
+        
+        let config = UISwipeActionsConfiguration(actions: [deleteAction])
+        config.performsFirstActionWithFullSwipe = true
+        return config
+    }
+    
     // MARK: - Configuration
     private func configureUI() {
         navigationItem.title = "Events List"
@@ -127,6 +173,14 @@ class EventsListViewController: UITableViewController {
     
     private func configureView() {
         view.backgroundColor = .white
+    }
+    
+    private func configureSearchController() {
+        searchController.searchResultsUpdater = self
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.searchBar.placeholder = "Search event"
+        navigationItem.searchController = searchController
+        definesPresentationContext = true
     }
     
     // MARK: – Register Cell
@@ -152,3 +206,19 @@ extension EventsListViewController: DelegateEventsListView {
     }
 }
 
+extension EventsListViewController: UISearchResultsUpdating {
+    func updateSearchResults(for searchController: UISearchController) {
+        guard let query = searchController.searchBar.text?.trimmingCharacters(in: .whitespaces) else {
+            events = []
+            return
+        }
+                
+        eventManager.searchEvents(with: query) { [weak self] events in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.events = events
+                self.tableView.reloadData()
+            }
+        }
+    }
+}

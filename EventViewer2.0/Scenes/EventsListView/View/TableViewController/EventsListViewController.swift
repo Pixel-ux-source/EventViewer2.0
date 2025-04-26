@@ -30,7 +30,7 @@ class EventsListViewController: UITableViewController {
     private let searchController = UISearchController(searchResultsController: nil)
     private var filteredEvents: [DBEvent] = []
     private var searchText: String = ""
-
+    
     // MARK: - Lifecycle
     init(eventManager: EventManager) {
         print("🟢 EventManager инициализирован: \(eventManager)")
@@ -49,27 +49,12 @@ class EventsListViewController: UITableViewController {
         registerCell()
         configureSearchController()
         print("🟢 EventsListViewController загружен!")
-        
-    }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        searchController.isActive = true
-        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
-        
-        DispatchQueue.main.async {
-            self.searchController.searchBar.becomeFirstResponder()
-        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         print("🟢 EventsListViewController появился на экране!")
         eventManager.capture(.viewScreen("EVENTS_LIST"))
-        
-        print("UIScreen.main.bounds:", UIScreen.main.bounds)
-        print("view.frame:", self.view.frame)
-        print("window?.frame:", self.view.window?.frame ?? .zero)
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -84,7 +69,7 @@ class EventsListViewController: UITableViewController {
 
         guard !isLoadingNextPage else { return }
         isLoadingNextPage = true
-        eventManager.fetchNextPage(offsetY, 13) { [weak self] newEvents in
+        eventManager.fetchNextPage(offsetY, Int(view.frame.height)/60) { [weak self] newEvents in
             DispatchQueue.main.async {
                 guard let self else { return }
                 let previosCount = self.events.count
@@ -129,8 +114,17 @@ class EventsListViewController: UITableViewController {
         60
     }
     
+    // Action Cell
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        let vc = DetailController()
+        vc.eventManager = eventManager
+        vc.delegate = self
+        vc.delegate?.transitionId(to: events[indexPath.row].id, vc)
+        
+        guard let date = events[indexPath.row].createdAt else { return }
+        vc.delegate?.transitionDate(to: date, vc)
+        navigationController?.pushViewController(vc, animated: true)
     }
     
     override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
@@ -139,23 +133,7 @@ class EventsListViewController: UITableViewController {
                 completionHandler(false)
                 return
             }
-            
-            let eventToDelete = self.events[indexPath.row]
-            eventManager.performBackgroundTask { context in
-                let object = context.object(with: eventToDelete.objectID)
-                context.delete(object)
-                
-                do {
-                    try context.save()
-                    DispatchQueue.main.async {
-                        self.events.remove(at: indexPath.row)
-                        tableView.deleteRows(at: [indexPath], with: .fade)
-                        print("Deleted element: \(self.events[indexPath.row].id)")
-                    }
-                } catch let error as NSError {
-                    print("❌ Ошибка при удалении:", error.localizedDescription)
-                }
-            }
+            deleteItem(at: indexPath)
             completionHandler(true)
         }
         deleteAction.backgroundColor = .red
@@ -222,3 +200,44 @@ extension EventsListViewController: UISearchResultsUpdating {
         }
     }
 }
+
+extension EventsListViewController: DetailViewDelegate {
+    func transitionDate(to date: Date, _ vc: DetailController) {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+        let formmatterDate = dateFormatter.string(from: date)
+        vc.date = formmatterDate
+    }
+    
+    func transitionId(to id: String, _ vc: DetailController) {
+        vc.id = id
+    }
+    
+    func deleteItem(at indexPath: IndexPath) {
+        let eventToDelete = self.events[indexPath.row]
+        eventManager.performBackgroundTask { [weak self] context in
+            guard let self else { return }
+            let object = context.object(with: eventToDelete.objectID)
+            context.delete(object)
+            
+            do {
+                try context.save()
+                DispatchQueue.main.async {
+                    self.events.remove(at: indexPath.row)
+                    self.tableView.deleteRows(at: [indexPath], with: .fade)
+                    print("Deleted element: \(self.events[indexPath.row].id)")
+                }
+            } catch let error as NSError {
+                print("❌ Ошибка при удалении:", error.localizedDescription)
+            }
+        }
+        // Если  сейчас не self, то делаем guard else { return }
+        if presentedViewController != self {
+            navigationController?.popViewController(animated: true)
+            print("popView")
+        }
+    }
+}
+
+// Добавить перезагрузку данных при делите

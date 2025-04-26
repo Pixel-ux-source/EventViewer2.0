@@ -70,6 +70,23 @@ public final class EventManager: NSPersistentContainer {
             }
         }
     }
+    
+    func fetchAll(completion: @escaping ([DBEvent]) -> ()) {
+         performBackgroundTask { context in
+             let fetchRequest = DBEvent.makeFetchRequest()
+             do {
+                 let events = try context.fetch(fetchRequest)
+                 DispatchQueue.main.async {
+                     completion(events)
+                 }
+             } catch {
+                 print("Error fetching events: \(error.localizedDescription)")
+                 DispatchQueue.main.async {
+                     completion([])
+                 }
+             }
+         }
+     }
 
     public func capture(_ event: Event) {
         performBackgroundTask({ context in
